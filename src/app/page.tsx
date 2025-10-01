@@ -3,9 +3,11 @@ import { PostGenerator } from '@/components/post-generator';
 
 export default function Home() {
   return (
-    <div className="flex min-h-screen w-full flex-col bg-secondary/20">
+    <div className="flex min-h-screen w-full flex-col bg-background">
       <Header />
-      <PostGenerator />
+      <main className="flex flex-1 flex-col gap-4 p-4 md:gap-8 md:p-8">
+        <PostGenerator />
+      </main>
     </div>
   );
 }
