@@ -2,6 +2,7 @@
 'use server';
 
 import { generateSocialMediaPost } from '@/ai/flows/generate-social-media-post';
+import type { GenerateSocialMediaPostOutput } from '@/ai/flows/generate-social-media-post';
 import type { GeneratedPost, GenerationRequest } from '@/lib/types';
 import { z } from 'zod';
 
@@ -24,13 +25,43 @@ export async function generatePostsAction(request: GenerationRequest): Promise<{
     }
     
     try {
-        const generationPromises = Array(3).fill(null).map(() => generateSocialMediaPost(request));
-        const results = await Promise.all(generationPromises);
+        const TIMEOUT_MS = 30_000; // 30 seconds per AI request
 
-        // Log raw AI outputs for debugging (visible in Vercel logs)
-        console.info('AI generation results:', JSON.stringify(results, null, 2));
+        const callWithTimeout = async <T>(p: Promise<T>, ms: number) => {
+            return new Promise<T>((resolve, reject) => {
+                const timer = setTimeout(() => reject(new Error('AI generation timed out')), ms);
+                p.then((v) => {
+                    clearTimeout(timer);
+                    resolve(v);
+                }).catch((err) => {
+                    clearTimeout(timer);
+                    reject(err);
+                });
+            });
+        };
 
-        const posts: GeneratedPost[] = results.map((post) => {
+        const generationPromises = Array(3)
+            .fill(null)
+            .map(() => callWithTimeout(generateSocialMediaPost(request), TIMEOUT_MS));
+
+        const settled = await Promise.allSettled(generationPromises);
+
+        // Log raw AI outputs and promise statuses for debugging (visible in Vercel logs)
+        console.info('AI generation settled results:', JSON.stringify(settled, null, 2));
+
+        const successful = settled
+            .filter((s) => s.status === 'fulfilled')
+            .map((s) => (s as PromiseFulfilledResult<any>).value as unknown as GenerateSocialMediaPostOutput);
+
+        if (successful.length === 0) {
+            const reasons = settled
+                .filter((s) => s.status === 'rejected')
+                .map((s) => (s as PromiseRejectedResult).reason?.toString?.() ?? String((s as PromiseRejectedResult).reason));
+            console.error('All AI generation calls failed:', reasons);
+            return { success: false, error: 'AI generation failed or timed out. Check logs for details.' };
+        }
+
+        const posts: GeneratedPost[] = successful.map((post) => {
             const seed = Math.floor(Math.random() * 1000);
 
             // Be defensive: handle missing or malformed dimensions from AI output.
@@ -38,7 +69,7 @@ export async function generatePostsAction(request: GenerationRequest): Promise<{
             let height = 1080;
             try {
                 if (post.dimensions && typeof post.dimensions === 'string') {
-                    const parts = post.dimensions.split('x').map((d) => parseInt(d.trim(), 10));
+                    const parts = post.dimensions.split('x').map((d: string) => parseInt(d.trim(), 10));
                     if (parts.length === 2 && !Number.isNaN(parts[0]) && !Number.isNaN(parts[1])) {
                         width = parts[0];
                         height = parts[1];
@@ -58,7 +89,7 @@ export async function generatePostsAction(request: GenerationRequest): Promise<{
 
         return { success: true, posts };
     } catch (e) {
-        console.error(e);
+        console.error('Unexpected error in generatePostsAction:', e);
         return { success: false, error: 'An unexpected error occurred while generating posts. Please try again.' };
     }
 }

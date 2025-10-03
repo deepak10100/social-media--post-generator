@@ -14,17 +14,27 @@ export function PostGenerator() {
     const handleGenerate = async (data: GenerationRequest) => {
         setIsLoading(true);
         setPosts([]);
-        const result = await generatePostsAction(data);
-        if (result.success && result.posts) {
-            setPosts(result.posts);
-        } else {
+        try {
+            const result = await generatePostsAction(data);
+            if (result?.success && result.posts) {
+                setPosts(result.posts);
+            } else {
+                toast({
+                    variant: 'destructive',
+                    title: 'Generation Failed',
+                    description: result?.error || 'An unknown error occurred.',
+                });
+            }
+        } catch (err) {
+            console.error('generatePostsAction threw:', err);
             toast({
                 variant: 'destructive',
-                title: 'Generation Failed',
-                description: result.error || 'An unknown error occurred.',
+                title: 'Generation Error',
+                description: 'An unexpected error occurred while generating posts. Check logs for details.',
             });
+        } finally {
+            setIsLoading(false);
         }
-        setIsLoading(false);
     };
 
     return (
